@@ -1,0 +1,16 @@
+DerivedDataCache
+Intermediate
+Saved
+Deploy
+Build
+.DS_Store
+*.sdf
+*.opensdf
+*.v12.suo
+*.dll
+*.lib
+*.dylib
+*.so
+*.so.*
+*.pdb
+*.modules

@@ -1,0 +1,30 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "UETensorVox",
+	"Description": "",
+	"Category": "Other",
+	"CreatedBy": "@MarkJGx",
+	"CreatedByURL": "",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"CanContainContent": true,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "UETensorVox",
+			"Type": "Runtime",
+			"LoadingPhase": "EarliestPossible"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "UETensorFlow",
+			"Enabled": true
+		}
+	]
+}
