@@ -27,7 +27,6 @@ public class UETensorVoxLibrary : ModuleRules
 		{
 			RuntimeDependencies.Add(Path.Combine(PluginDirectory, "Binaries", "ThirdParty", "Apple64", "libdeepspeech.so"));
 		}
-		
 
 
 		PublicDelayLoadDLLs.Add("libdeepspeech.so");	

@@ -10,7 +10,6 @@
 
 DEFINE_LOG_CATEGORY(LogUETensorVox);
 
-
 void FUETensorVoxModule::StartupModule()
 {
 	FString BinaryPath = FPaths::Combine(IPluginManager::Get().FindPlugin("UETensorVox")->GetBaseDir(),
@@ -27,10 +26,10 @@ void FUETensorVoxModule::StartupModule()
 	DeepSpeechHandle = FPlatformProcess::GetDllHandle(*FPaths::Combine(BinaryPath, TEXT("libdeepspeech.so")));
 	if(DeepSpeechHandle)
 	{
-		UE_LOG(LogUETensorVox, Warning, TEXT("Successfully loaded Mozilla's DeepSpeech library %s."), *FString(DS_Version()));
+		UE_LOG(LogUETensorVox, Log, TEXT("Successfully loaded Mozilla's DeepSpeech library %s."), *FString(DS_Version()));
 	} else
 	{
-		UE_LOG(LogUETensorVox, Warning, TEXT("Failed to load Mozilla's DeepSpeech library."));
+		UE_LOG(LogUETensorVox, Error, TEXT("Failed to load Mozilla's DeepSpeech library."));
 
 	}
 }
