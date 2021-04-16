@@ -26,7 +26,9 @@ void FUETensorVoxModule::StartupModule()
 	DeepSpeechHandle = FPlatformProcess::GetDllHandle(*FPaths::Combine(BinaryPath, TEXT("libdeepspeech.so")));
 	if(DeepSpeechHandle)
 	{
-		UE_LOG(LogUETensorVox, Log, TEXT("Successfully loaded Mozilla's DeepSpeech library %s."), *FString(DS_Version()));
+		char* VersionBuffer = DS_Version();
+		UE_LOG(LogUETensorVox, Log, TEXT("Successfully loaded Mozilla's DeepSpeech library %s."), *FString(VersionBuffer));
+		DS_FreeString(VersionBuffer);
 	} else
 	{
 		UE_LOG(LogUETensorVox, Error, TEXT("Failed to load Mozilla's DeepSpeech library."));
