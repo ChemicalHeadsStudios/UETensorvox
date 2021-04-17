@@ -4,16 +4,7 @@
 #include "AudioCaptureComponent.h"
 #include "GameplayTagContainer.h"
 #include "deepspeech.h"
-#include "MultithreadedPatching.h"
-
 #include "AudioTranscriberComponent.generated.h"
-
-
-struct FModelStateWithError
-{
-	ModelState* State;
-	int32 Error;
-};
 
 UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent), meta=(DisplayName="DeepSpeech Audio Transcriber"))
 class UETENSORVOX_API UAudioTranscriberComponent : public UActorComponent
@@ -57,7 +48,6 @@ protected:
 	virtual bool CanLoadModel();
 
 	virtual void CreateTranscriptionThread();
-	virtual void CreateModelAsync(TFunction<void(bool)> Callback);
 
 	/**
 	 * The input device's sample rate. Gathered at runtime.
@@ -68,17 +58,13 @@ protected:
 	 */
 	int32 ModelSampleRate;
 
-	TFuture<FModelStateWithError> ModelFuture;
-
+	// Cleaned up by the interference thread.
 	FEvent* QueueNotify;
-
-	ModelState* LoadedModel;
-
-	FCriticalSection TranscriptionLock; 
+	
 	FString TranscribedWords;
 
 	TFuture<void> ThreadHandle;
 	
-	static bool CheckForError(int32 Error);
+	static bool CheckForError(const FString& Name, int32 Error);
 
 };
