@@ -27,7 +27,7 @@ static int32 OnAudioCaptureCallback(void* OutBuffer, void* InBuffer, uint32 InBu
 
 FDeepSpeechMicrophoneRecorder::FDeepSpeechMicrophoneRecorder()
 {
-	RecordingSampleRate = 16000.0f;
+	TargetSampleRate = 16000;
 	bRecording = false;
 	bSplitChannels = false;
 	bError = false;
@@ -43,20 +43,19 @@ FDeepSpeechMicrophoneRecorder::~FDeepSpeechMicrophoneRecorder()
 	}
 }
 
-void FDeepSpeechMicrophoneRecorder::StartRecording(int32 RecordingBlockSize)
+bool FDeepSpeechMicrophoneRecorder::StartRecording(int32 InTargetSampleRate, int32 RecordingBlockSize)
 {
 	if (bError)
 	{
-		return;
+		return false;
 	}
 
 	if(bRecording)
 	{
-		TArray<FDeinterleavedAudio> Temp;
-		// Stop any recordings currently going on (if there is one)
 		StopRecording();
 	}
 
+	TargetSampleRate = InTargetSampleRate;
 	
 	// If we have a stream open close it (reusing streams can cause a blip of previous recordings audio)
 	if (ADCInstance.isStreamOpen())
@@ -71,50 +70,74 @@ void FDeepSpeechMicrophoneRecorder::StartRecording(int32 RecordingBlockSize)
 			FString ErrorMessage = FString(e.what());
 			bError = true;
 			UE_LOG(LogUETensorVox, Error, TEXT("Failed to close the mic capture device stream: %s"), *ErrorMessage);
-			return;
+			return false;
 		}
 	}
 
-	UE_LOG(LogUETensorVox, Log, TEXT("Starting mic recording."));
-
-
 	// Get the default mic input device info
 	RtAudio::DeviceInfo Info = ADCInstance.getDeviceInfo(StreamParams.deviceId);
-	RecordingSampleRate = Info.preferredSampleRate;
 	NumInputChannels.Set(Info.inputChannels);
 
-	const int32 InputChannelCount = NumInputChannels.GetValue();
+
+	bool bSampleRateFound = false;
 	
-	// Only support mono and stereo mic inputs for now...
-	if (InputChannelCount != 1 && InputChannelCount!= 2)
+	for (auto SampleRate : Info.sampleRates)
 	{
-		UE_LOG(LogUETensorVox, Warning, TEXT("Audio recording only supports mono and stereo mic input."));
-		return;
+		if (static_cast<int32>(SampleRate) == TargetSampleRate)
+		{
+			RecordingSampleRate = SampleRate;
+			bSampleRateFound = true;
+			break;
+		}
 	}
 
+	if(!bSampleRateFound)
+	{
+		UE_LOG(LogUETensorVox, Warning, TEXT("Sample %i rate not found. Selecting nearest."), TargetSampleRate);
+
+		auto GetClosests = [](std::vector<unsigned> const& Vec, unsigned Value) -> int32
+		{
+			auto const It = std::lower_bound(Vec.begin(), Vec.end(), Value);
+			if (It == Vec.end())
+			{
+				return INDEX_NONE;
+			}
+
+			return *It;
+		};
+
+
+		const int32 ClosestSampleRate = GetClosests(Info.sampleRates, TargetSampleRate);
+		if (ClosestSampleRate != INDEX_NONE)
+		{
+			RecordingSampleRate = ClosestSampleRate;
+		}
+		else
+		{
+			UE_LOG(LogUETensorVox, Error, TEXT("Nearest sample rate not found"));
+			return false;
+		}
+	}
+
+
+	if(RecordingSampleRate < 0)
+	{
+		UE_LOG(LogUETensorVox, Warning, TEXT("Invalid sample rate provided %i."), TargetSampleRate);
+		return false;
+	}
+
+	
 	RawRecordingBlocks.Empty();
-
-	bSplitChannels = InputChannelCount > 1;
-
-	// If we have more than 2 channels, we're going to force splitting up the assets since we don't propertly support multi-channel USoundWave assets
-	if (InputChannelCount > 2)
-	{
-		UE_LOG(LogUETensorVox, Error, TEXT("Cannot record microphone, not single channel"));
-		return;
-	}
-
 	NumOverflowsDetected = 0;
-
 	// Publish to the mic input thread that we're ready to record...
 	bRecording = true;
-
+	
 	StreamParams.deviceId = ADCInstance.getDefaultInputDevice(); // Only use the default input device for now
-
-	StreamParams.nChannels = InputChannelCount;
+	StreamParams.nChannels = 1;
 	StreamParams.firstChannel = 0;
-
 	uint32 BufferFrames = FMath::Max(RecordingBlockSize, 256);
 
+	
 	UE_LOG(LogUETensorVox, Log,
 	       TEXT("Initialized mic recording manager at %d hz sample rate, %d channels, and %d Recording Block Size"),
 	       RecordingSampleRate, StreamParams.nChannels, BufferFrames);
@@ -131,34 +154,38 @@ void FDeepSpeechMicrophoneRecorder::StartRecording(int32 RecordingBlockSize)
 		FString ErrorMessage = FString(e.what());
 		bError = true;
 		UE_LOG(LogUETensorVox, Error, TEXT("Failed to open the mic capture device: %s"), *ErrorMessage);
+		return false;
 	}
 	catch (const std::exception& e)
 	{
-		bError = true;
 		FString ErrorMessage = FString(e.what());
+		bError = true;
 		UE_LOG(LogUETensorVox, Error, TEXT("Failed to open the mic capture device: %s"), *ErrorMessage);
+		return false;
 	}
 	catch (...)
 	{
 		UE_LOG(LogUETensorVox, Error, TEXT("Failed to open the mic capture device: unknown error"));
 		bError = true;
+		return false;
 	}
 
 	ADCInstance.startStream();
+	return true;
 }
 
-TArray<int16> FDeepSpeechMicrophoneRecorder::DownmixStereoToMono(const TArray<int16>& FirstChannel, const TArray<int16>& SecondChannel)
-{
-	TArray<int16> OutMixed;
-	check(FirstChannel.Num() == SecondChannel.Num());
-	OutMixed.SetNumZeroed(FirstChannel.Num());
-	for (int32 FrameIndex = 0; FrameIndex < FirstChannel.Num(); FrameIndex++)
-	{
-		OutMixed[FrameIndex] = (int16)(((float)FirstChannel[FrameIndex] + (float)SecondChannel[FrameIndex]) / 2.0f);
-	}
-
-	return OutMixed;
-}
+// TArray<int16> FDeepSpeechMicrophoneRecorder::DownmixStereoToMono(const TArray<int16>& FirstChannel, const TArray<int16>& SecondChannel)
+// {
+// 	TArray<int16> OutMixed;
+// 	check(FirstChannel.Num() == SecondChannel.Num());
+// 	OutMixed.SetNumZeroed(FirstChannel.Num());
+// 	for (int32 FrameIndex = 0; FrameIndex < FirstChannel.Num(); FrameIndex++)
+// 	{
+// 		OutMixed[FrameIndex] = ( (FirstChannel[FrameIndex] + SecondChannel[FrameIndex]) / 2.0f);
+// 	}
+//
+// 	return OutMixed;
+// }
 
 
 static void SampleRateConvert(float CurrentSR, float TargetSR, int32 NumChannels, const TArray<int16>& InSamples,
@@ -209,66 +236,28 @@ static void SampleRateConvert(float CurrentSR, float TargetSR, int32 NumChannels
 	}
 }
 
-TArray<FDeinterleavedAudio> FDeepSpeechMicrophoneRecorder::DownsampleAndSeperateChannels(
+TArray<FDeinterleavedAudio> FDeepSpeechMicrophoneRecorder::ProcessSamples(
 	TArray<int16> InSamples)
 {
+
 	const int32 InputChannelCount = NumInputChannels.GetValue();
 	TArray<FDeinterleavedAudio> OutResampled;
+	
 	if (InSamples.Num() > 0)
 	{
-		// If our sample rate isn't 16000, then we need to do a SRC
-		if (RecordingSampleRate != 16000.0f)
+		if (RecordingSampleRate != TargetSampleRate)
 		{
-			// UE_LOG(LogUETensorVox, Log, TEXT("Converting sample rate from %d hz to 16000 hz."), (int32)RecordingSampleRate);
-
 			TArray<int16> Resampled;
-			SampleRateConvert(RecordingSampleRate, (float)16000, InputChannelCount, InSamples, InSamples.Num(), Resampled);
+			SampleRateConvert((float)RecordingSampleRate, (float)TargetSampleRate, InputChannelCount, InSamples, InSamples.Num(), Resampled);
 			InSamples = Resampled;
 		}
 
-		if (bSplitChannels)
-		{
-			// De-interleaved buffer size will be the number of frames of audio
-			int32 NumFrames = InSamples.Num() / InputChannelCount;
 
-			// Reset our deinterleaved audio buffer
-			InSamples.Reset(InputChannelCount);
+		FDeinterleavedAudio SingleChannel;
+		SingleChannel.PCMData = InSamples;
 
-			// Get ptr to the interleaved buffer for speed in non-release builds
-			int16* InterleavedBufferPtr = InSamples.GetData();
-
-			// For every input channel, create a new buffer
-			for (int32 Channel = 0; Channel < InputChannelCount; ++Channel)
-			{
-				// Prepare a new deinterleaved buffer
-				OutResampled.Add(FDeinterleavedAudio());
-				FDeinterleavedAudio& DeinterleavedChannelAudio = OutResampled[Channel];
-
-				DeinterleavedChannelAudio.PCMData.Reset();
-				DeinterleavedChannelAudio.PCMData.AddUninitialized(NumFrames);
-
-				// Get a ptr to the buffer for speed
-				int16* DeinterleavedBufferPtr = DeinterleavedChannelAudio.PCMData.GetData();
-
-				// Copy every N channel to the deinterleaved buffer, starting with the current channel
-				int32 CurrentSample = Channel;
-				for (int32 Frame = 0; Frame < NumFrames; ++Frame)
-				{
-					// Simply copy the interleaved value to the deinterleaved value
-					DeinterleavedBufferPtr[Frame] = InterleavedBufferPtr[CurrentSample];
-
-					// Increment the stride according the num channels
-					CurrentSample += InputChannelCount;
-				}
-			}
-		}
-		else
-		{
-			FDeinterleavedAudio SingleChannel;
-			SingleChannel.PCMData = InSamples;
-
-			OutResampled.Add(SingleChannel);
-		}
+		OutResampled.Add(SingleChannel);
+		
 	}
 	return OutResampled;
 }
@@ -294,8 +283,8 @@ int32 FDeepSpeechMicrophoneRecorder::OnAudioCapture(void* InBuffer, uint32 InBuf
 			++NumOverflowsDetected;
 		}
 		
-		TArray<int16> Block;
-		Block.Append((int16*)InBuffer, InBufferFrames * NumInputChannels.GetValue());
+		FAlignedSignedInt16Array Block;
+		Block.Append((int16*)InBuffer, InBufferFrames);
 		RawRecordingBlocks.Enqueue(FDeinterleavedAudio{Block});
 		return 0;
 	}

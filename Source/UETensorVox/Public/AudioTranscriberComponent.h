@@ -3,8 +3,31 @@
 #include "CoreMinimal.h"
 #include "AudioCaptureComponent.h"
 #include "GameplayTagContainer.h"
-#include "deepspeech.h"
 #include "AudioTranscriberComponent.generated.h"
+
+
+USTRUCT(BlueprintType)
+struct FDeepSpeechConfiguration
+{
+	GENERATED_BODY()
+public:
+	FDeepSpeechConfiguration() : BeamWidth(0), AsyncTickTranscriptionInterval(1.0)
+	{
+		
+	}
+	
+	UPROPERTY(Category="DeepSpeech Audio Configuration", BlueprintReadOnly, EditAnywhere)
+	int32 BeamWidth;
+	
+	UPROPERTY(Category="DeepSpeech Audio Configuration", BlueprintReadOnly, EditAnywhere)
+	FString ModelPath;
+
+	UPROPERTY(Category="DeepSpeech Audio Configuration", BlueprintReadOnly, EditAnywhere)
+	FString ScorerPath;
+	
+	UPROPERTY(Category="DeepSpeech Audio Configuration", BlueprintReadOnly, EditAnywhere)
+	float AsyncTickTranscriptionInterval;
+};
 
 UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent), meta=(DisplayName="DeepSpeech Audio Transcriber"))
 class UETENSORVOX_API UAudioTranscriberComponent : public UActorComponent
@@ -19,29 +42,19 @@ public:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
-	FThreadSafeBool bWorkerThreadRunning;
+	TSharedPtr<FThreadSafeBool, ESPMode::ThreadSafe> bTranscriberRunning;
 
-	UFUNCTION(BlueprintCallable)
 	virtual void StartRealtimeTranscription();
 
-	
 	virtual void EndRealtimeTranscription();
 
+	static int16 ArrayMean(const TArray<int16>& InView);
 	
 public:
 
 	UPROPERTY(Category="DeepSpeech Audio Transcriber", BlueprintReadOnly, EditAnywhere)
-	int32 BeamWidth;
+	FDeepSpeechConfiguration SpeechConfiguration;
 	
-	UPROPERTY(Category="DeepSpeech Audio Transcriber", BlueprintReadOnly, EditAnywhere)
-	FString ModelPath;
-
-	UPROPERTY(Category="DeepSpeech Audio Transcriber", BlueprintReadOnly, EditAnywhere)
-	FString ScorerPath;
-	
-	UPROPERTY(Category="DeepSpeech Audio Transcriber", BlueprintReadOnly, EditAnywhere)
-	float AsyncTickTranscriptionInterval;
-
 protected:
 
 	
@@ -49,6 +62,9 @@ protected:
 
 	virtual void CreateTranscriptionThread();
 
+
+	TSharedPtr<FString, ESPMode::ThreadSafe> TranscribedWords;
+	
 	/**
 	 * The input device's sample rate. Gathered at runtime.
 	 */
@@ -60,8 +76,6 @@ protected:
 
 	// Cleaned up by the interference thread.
 	FEvent* QueueNotify;
-		
-	FString TranscribedWords;
 
 	TFuture<void> ThreadHandle;
 	
