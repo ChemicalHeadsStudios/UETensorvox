@@ -60,7 +60,7 @@ protected:
 
 	// Cleaned up by the interference thread.
 	FEvent* QueueNotify;
-	
+		
 	FString TranscribedWords;
 
 	TFuture<void> ThreadHandle;

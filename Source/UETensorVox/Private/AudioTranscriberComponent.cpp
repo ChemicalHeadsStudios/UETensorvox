@@ -20,25 +20,26 @@ void UAudioTranscriberComponent::CreateTranscriptionThread()
 	if (CanLoadModel())
 	{
 		UE_LOG(LogUETensorVox, Warning, TEXT("Started realtime transcription."));
-
 		bWorkerThreadRunning = true;
-
-		if (QueueNotify)
-		{
-			FPlatformProcess::ReturnSynchEventToPool(QueueNotify);
-			QueueNotify = nullptr;
-		}
-
-		QueueNotify = FPlatformProcess::GetSynchEventFromPool();
 
 		ThreadHandle = AsyncThread([this, InModelPath = ModelPath, InScorerPath = ScorerPath, InBeamWidth = BeamWidth, InAsyncTickTranscriptionInterval = AsyncTickTranscriptionInterval]()
 		{
+			if (!this)
+			{
+				return;
+			}
+
+
+			FEvent* ThreadQueueNotify = FPlatformProcess::GetSynchEventFromPool();
+			QueueNotify = ThreadQueueNotify;
+			
 			const FString& Model = FPaths::ProjectContentDir() + InModelPath;
 			const FString& Scorer = FPaths::ProjectContentDir() + InScorerPath;
 
 			ModelState* LoadedModel;
 			if (CheckForError(TEXT("Model"), DS_CreateModel(TCHAR_TO_UTF8(*Model), &LoadedModel)))
 			{
+				FPlatformProcess::ReturnSynchEventToPool(ThreadQueueNotify);
 				return;
 			}
 
@@ -46,6 +47,7 @@ void UAudioTranscriberComponent::CreateTranscriptionThread()
 			{
 				if (CheckForError(TEXT("LM scorer"), DS_EnableExternalScorer(LoadedModel, TCHAR_TO_UTF8(*Scorer))))
 				{
+					FPlatformProcess::ReturnSynchEventToPool(ThreadQueueNotify);
 					return;
 				}
 
@@ -53,16 +55,19 @@ void UAudioTranscriberComponent::CreateTranscriptionThread()
 				{
 					if (CheckForError(TEXT("Model beam width"), DS_SetModelBeamWidth(LoadedModel, InBeamWidth)))
 					{
+						FPlatformProcess::ReturnSynchEventToPool(ThreadQueueNotify);
 						return;
 					}
 				}
 			}
 			else
 			{
+				FPlatformProcess::ReturnSynchEventToPool(ThreadQueueNotify);
 				return;
 			}
 			
-			
+
+
 			StreamingState* Stream;
 			DS_CreateStream(LoadedModel, &Stream);
 			// DS_SetScorerAlphaBeta(LoadedModel, 2.0f, 1.0f);
@@ -70,12 +75,11 @@ void UAudioTranscriberComponent::CreateTranscriptionThread()
 			if (Stream)
 			{
 				UE_LOG(LogUETensorVox, Warning, TEXT("Created stream"));
-		
-				FDeepSpeechMicrophoneRecorder Recorder;
-				Recorder.StartRecording();
 
 				TArray<int16> AllSamples;
-				
+
+				FDeepSpeechMicrophoneRecorder Recorder;
+				Recorder.StartRecording();				
 				while (bWorkerThreadRunning)
 				{
 					if (this)
@@ -115,13 +119,15 @@ void UAudioTranscriberComponent::CreateTranscriptionThread()
 							// }
 
 						}
-						QueueNotify->Wait(FMath::TruncToInt(InAsyncTickTranscriptionInterval * 1000.0f));
+						ThreadQueueNotify->Wait(FMath::TruncToInt(InAsyncTickTranscriptionInterval * 1000.0f));
 					} else
 					{
 						break;
 					}
 				}
+				DS_FreeStream(Stream);				
 				Recorder.StopRecording();
+
 
 				// When the record stops it's completely possible for this to be out of deleted.
 
@@ -130,27 +136,36 @@ void UAudioTranscriberComponent::CreateTranscriptionThread()
 				if (TranscriptionChar)
 				{
 					const FString& Word = FString(TranscriptionChar);
+					UE_LOG(LogUETensorVox, Warning, TEXT("Transcribed %s"), *Word);
+                    DS_FreeString(TranscriptionChar);
+					
 					if (this)
 					{
-						AsyncTask(ENamedThreads::GameThread, [this, Word]()
-						{
-							if(IsValid(this))
-							{
-								TranscribedWords = Word;
-							}
-							
-						});
+						// AsyncTask(ENamedThreads::GameThread, [this, InWord = *Word]()
+						// {
+						// 	if(IsValid(this))
+						// 	{
+						// 		TranscribedWords = FString(InWord);
+						// 	}
+						// 	
+						// });
 					}
-					UE_LOG(LogUETensorVox, Warning, TEXT("Transcribed %s"), *Word);
-					DS_FreeString(TranscriptionChar);
 				}
-				
-				
-				DS_FreeModel(LoadedModel);
-				DS_FreeStream(Stream);
-				FPlatformProcess::ReturnSynchEventToPool(QueueNotify);
-
 			}
+
+			DS_FreeModel(LoadedModel);
+
+			if(ThreadQueueNotify)
+			{
+				AsyncTask(ENamedThreads::GameThread, [Event = ThreadQueueNotify]()
+             {
+                 if (Event)
+                 {
+                     FPlatformProcess::ReturnSynchEventToPool(Event);
+                 }
+             });
+			}
+		
 		}, 0, EThreadPriority::TPri_Normal);
 	}
 }
