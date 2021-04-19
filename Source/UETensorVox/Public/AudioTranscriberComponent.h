@@ -44,6 +44,7 @@ public:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
+	virtual void PushTranscribeResult(const FString& TrancribedResult, bool bFinal = false);
 	
 	virtual void StartRealtimeTranscription();
 
@@ -57,14 +58,15 @@ public:
 	FDeepSpeechConfiguration SpeechConfiguration;
 	
 protected:
-
-	
 	virtual bool CanLoadModel();
 
 	static void CreateTranscriptionThread(UAudioTranscriberComponent* TranscriberComponent);
 	static void DestroyTranscriptionThread(UAudioTranscriberComponent* TranscriberComponent);
 	static void NotifyTranscriptionThread();
 
+
+	FString TranscribedResult;
+	
 	/**
 	 * The input device's sample rate. Gathered at runtime.
 	 */

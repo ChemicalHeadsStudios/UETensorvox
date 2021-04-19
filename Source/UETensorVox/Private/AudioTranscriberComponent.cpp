@@ -22,14 +22,13 @@ void UAudioTranscriberComponent::CreateTranscriptionThread(UAudioTranscriberComp
 	if (TranscriberComponent && TranscriberComponent->CanLoadModel() && !GTranscriberQueueRunning)
 	{
 		GTranscriberQueueRunning = true;
-		AsyncThread([this, Config = TranscriberComponent->SpeechConfiguration]()
-		{ 
+		AsyncThread([TranscriberComponent, Config = TranscriberComponent->SpeechConfiguration]()
+		{
 			const FString& Model = FPaths::ProjectContentDir() + Config.ModelPath;
 			const FString& Scorer = FPaths::ProjectContentDir() + Config.ScorerPath;
 
-			TArray<TFuture<FString>> DispatchedFuturesString;
 			TArray<TFuture<void>> DispatchedFuturesVoid;
-			
+
 			ModelState* LoadedModel;
 			if (CheckForError(TEXT("Model"), DS_CreateModel(TCHAR_TO_UTF8(*Model), &LoadedModel)))
 			{
@@ -64,10 +63,14 @@ void UAudioTranscriberComponent::CreateTranscriptionThread(UAudioTranscriberComp
 				VadInst* VadInstance = WebRtcVad_Create();
 				WebRtcVad_Init(VadInstance);
 #endif
+
+				StreamingState* StreamState;
+				CheckForError(TEXT("StreamingState"), DS_CreateStream(LoadedModel, &StreamState));
 				
 				while (GTranscriberQueueRunning)
 				{
 					// Collect the remaining recorded blocks.
+					TAlignedSignedInt16Array LocalRecordingBuffer;
 					while (Recorder.RawRecordingBlocks.Peek())
 					{
 						const FDeinterleavedAudio& Audio = *Recorder.RawRecordingBlocks.Peek();
@@ -85,6 +88,7 @@ void UAudioTranscriberComponent::CreateTranscriptionThread(UAudioTranscriberComp
 							if (bVoiceDetected)
 							{
 								RecordedSamples.Append(Audio.PCMData);
+								LocalRecordingBuffer.Append(Audio.PCMData);
 							}
 						}
 						Recorder.RawRecordingBlocks.Pop();
@@ -93,33 +97,44 @@ void UAudioTranscriberComponent::CreateTranscriptionThread(UAudioTranscriberComp
 					// Handle transcriptions state.
 					if (bLastRequestTranscribe != GTranscribeRequested)
 					{
+						
 						if (GTranscribeRequested)
 						{
+							// Start recording
 							RecordedSamples.Empty();
 							// WebRTC supports frame lengths of 320 and 480 at a 16000 sample rate.
 							GTranscribeRequested = Recorder.StartRecording(16000, 480);
 						}
 						else
 						{
+							// Finish recordingg
 							Recorder.StopRecording();
-
-							//
-							// AsyncTask(ENamedThreads::GameThread, [=, SampleRate = Recorder.RecordingSampleRate]()
-							// {
-							// 	FDeepSpeechMicrophoneRecorder::SaveAsWavMono(RecordedSamples, TEXT("/Game/TranscriberAudio/"), TEXT("TranscriberAudio"), SampleRate);
-							// });
-
-							DispatchedFuturesVoid.Emplace(AsyncThread([LoadedModel = LoadedModel, RecordedSamples]()
+#if 1
+							AsyncTask(ENamedThreads::GameThread, [=, SampleRate = Recorder.RecordingSampleRate]()
+							{
+								FDeepSpeechMicrophoneRecorder::SaveAsWavMono(RecordedSamples, TEXT("/Game/TranscriberAudio/"), TEXT("TranscriberAudio"), SampleRate);
+							});
+#endif
+							DispatchedFuturesVoid.Emplace(AsyncThread([=]()
 							{
 								if (LoadedModel)
 								{
-									char* TranscriptionChar = DS_SpeechToText(LoadedModel, RecordedSamples.GetData(),
-									                                          RecordedSamples.GetTypeSize() * RecordedSamples.Num());
+									char* TranscriptionChar = DS_SpeechToText(LoadedModel, RecordedSamples.GetData(), RecordedSamples.Num());
 
 									if (TranscriptionChar)
 									{
 										const FString& Word = FString(TranscriptionChar);
-										UE_LOG(LogUETensorVox, Log, TEXT("Finished transcription with: %s"), *Word);
+										if (!Word.IsEmpty())
+										{
+											AsyncTask(ENamedThreads::GameThread, [TranscriberComponent, Word]()
+											{
+												if(IsValid(TranscriberComponent))
+												{
+													TranscriberComponent->PushTranscribeResult(Word, true);
+												}
+											});
+										}
+										
 										DS_FreeString(TranscriptionChar);
 									}
 								}
@@ -127,22 +142,41 @@ void UAudioTranscriberComponent::CreateTranscriptionThread(UAudioTranscriberComp
 						}
 						bLastRequestTranscribe = GTranscribeRequested;
 					}
+
+					if (GTranscribeRequested && StreamState && LocalRecordingBuffer.Num() > 0)
+					{
+						DS_FeedAudioContent(StreamState, LocalRecordingBuffer.GetData(), LocalRecordingBuffer.Num());
+						char* IntermediateResult = DS_IntermediateDecode(StreamState);
+						if (IntermediateResult)
+						{
+							FString IntermediateTranscribe = FString(IntermediateResult);
+							DS_FreeString(IntermediateResult);
+							if (!IntermediateTranscribe.IsEmpty())
+							{
+								AsyncTask(ENamedThreads::GameThread, [TranscriberComponent, IntermediateTranscribe]()
+								{
+									if (IsValid(TranscriberComponent))
+									{
+										TranscriberComponent->PushTranscribeResult(IntermediateTranscribe);
+									}
+								});
+							}
+						}
+					}
 					GTranscribeQueueNotify->Wait(FMath::TruncToInt(Config.AsyncTickTranscriptionInterval * 1000.0f));
 				}
-
 #if WITH_WEBRTC
 				// Clean up WebRTC.
 				WebRtcVad_Free(VadInstance);
 #endif WITH_WEBRTC
+
+				if(StreamState)
+				{
+					DS_FreeStream(StreamState);
+				}
 				
 				// The futures use the model, so we can't clean it up until they are done. 
 				for (const TFuture<void>& Dispatch : DispatchedFuturesVoid)
-				{
-					Dispatch.Wait();
-				}
-
-				// The futures use the model, so we can't clean it up until they are done. 
-				for (const TFuture<FString>& Dispatch : DispatchedFuturesString)
 				{
 					Dispatch.Wait();
 				}
@@ -187,6 +221,11 @@ void UAudioTranscriberComponent::EndPlay(const EEndPlayReason::Type EndPlayReaso
 	Super::EndPlay(EndPlayReason);
 }
 
+void UAudioTranscriberComponent::PushTranscribeResult(const FString& InTrancribedResult, bool bFinal)
+{
+	UE_LOG(LogUETensorVox, Log, TEXT("Out Transcribe: %s"), *InTrancribedResult);
+	TranscribedResult = InTrancribedResult;
+}
 
 void UAudioTranscriberComponent::StartRealtimeTranscription()
 {
@@ -214,26 +253,6 @@ void UAudioTranscriberComponent::NotifyTranscriptionThread()
 	}
 }
 
-int16 UAudioTranscriberComponent::ArrayMean(const TAlignedSignedInt16Array& InView)
-{
-	int32 OutMean = 0;
-
-	const int32 Num = InView.Num();
-
-	if(Num == 0)
-	{
-		return 0;
-	}
-	
-	for (int32 i = 0; i < Num; i++)
-	{
-		OutMean += InView[i];
-	}
-
-	OutMean /= static_cast<float>(Num);
-	return OutMean;
-}
-
 bool UAudioTranscriberComponent::CanLoadModel()
 {
 #if UE_SERVER
@@ -241,7 +260,6 @@ bool UAudioTranscriberComponent::CanLoadModel()
 #endif
 	return true;
 }
-
 
 bool UAudioTranscriberComponent::CheckForError(const FString& Name, int32 Error)
 {
