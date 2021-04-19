@@ -48,8 +48,6 @@ public:
 	virtual void StartRealtimeTranscription();
 
 	virtual void EndRealtimeTranscription();
-	virtual void NotifyThread();
-
 	
 	static int16 ArrayMean(const TAlignedSignedInt16Array& InView);
 	
@@ -63,9 +61,10 @@ protected:
 	
 	virtual bool CanLoadModel();
 
-	virtual void CreateTranscriptionThread();
-	virtual void DestroyTranscriptionThread();
-	
+	static void CreateTranscriptionThread(UAudioTranscriberComponent* TranscriberComponent);
+	static void DestroyTranscriptionThread(UAudioTranscriberComponent* TranscriberComponent);
+	static void NotifyTranscriptionThread();
+
 	/**
 	 * The input device's sample rate. Gathered at runtime.
 	 */
@@ -74,8 +73,6 @@ protected:
 	 * Model sample rate, gathered at runtime when 
 	 */
 	int32 ModelSampleRate;
-
-	TFuture<void> ThreadHandle;
 	
 	static bool CheckForError(const FString& Name, int32 Error);
 

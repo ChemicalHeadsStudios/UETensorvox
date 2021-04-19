@@ -4,8 +4,6 @@
 #include "DeepSpeechMicrophoneRecorder.h"
 #include "WebRtcCommonAudioIncludes.h"
 
-
-
 UAudioTranscriberComponent::UAudioTranscriberComponent(const FObjectInitializer& ObjectInitializer) : Super(ObjectInitializer)
 {
 	PrimaryComponentTick.bCanEverTick = true;
@@ -19,24 +17,19 @@ FThreadSafeBool GTranscriberQueueRunning;
 FThreadSafeBool GTranscribeRequested;
 FEvent* GTranscribeQueueNotify = FPlatformProcess::GetSynchEventFromPool();
 
-void UAudioTranscriberComponent::CreateTranscriptionThread()
+void UAudioTranscriberComponent::CreateTranscriptionThread(UAudioTranscriberComponent* TranscriberComponent)
 {
-	if (CanLoadModel() && !GTranscriberQueueRunning)
+	if (TranscriberComponent && TranscriberComponent->CanLoadModel() && !GTranscriberQueueRunning)
 	{
 		GTranscriberQueueRunning = true;
-
-		UE_LOG(LogUETensorVox, Warning, TEXT("Started transcription worker."));
-		ThreadHandle = AsyncThread([this, Config = SpeechConfiguration]()
-		{
-			if (!this)
-			{
-				return;
-			}
-
+		AsyncThread([this, Config = TranscriberComponent->SpeechConfiguration]()
+		{ 
 			const FString& Model = FPaths::ProjectContentDir() + Config.ModelPath;
 			const FString& Scorer = FPaths::ProjectContentDir() + Config.ScorerPath;
 
-			TArray<TFuture<void>> DispatchedFutures;
+			TArray<TFuture<FString>> DispatchedFuturesString;
+			TArray<TFuture<void>> DispatchedFuturesVoid;
+			
 			ModelState* LoadedModel;
 			if (CheckForError(TEXT("Model"), DS_CreateModel(TCHAR_TO_UTF8(*Model), &LoadedModel)))
 			{
@@ -59,95 +52,114 @@ void UAudioTranscriberComponent::CreateTranscriptionThread()
 				}
 			}
 
-
-			bool bLastRequestTranscribe = false;
-			
-			FDeepSpeechMicrophoneRecorder Recorder;
-			TAlignedSignedInt16Array RecordedSamples;
-
-			// Create a WebRTC vad to determine voice level. 
-			VadInst* VadInstance = WebRtcVad_Create();
-			WebRtcVad_Init(VadInstance);
-
-			while (GTranscriberQueueRunning)
+			UE_LOG(LogUETensorVox, Warning, TEXT("Started transcription worker."));
 			{
-				// Collect the remaining recorded blocks.
-				while (Recorder.RawRecordingBlocks.Peek())
-				{
-					const FDeinterleavedAudio& Audio = *Recorder.RawRecordingBlocks.Peek();
-					if (Audio.PCMData.Num() > 0)
-					{
-						const int32 VoiceStatus = WebRtcVad_Process(VadInstance, Recorder.RecordingSampleRate, Audio.PCMData.GetData(), Audio.PCMData.Num());
-						// Let audio data in if the vad has detected a voice level, or if it errors out due to a special mic or something.
-						if(VoiceStatus == 1 || VoiceStatus == -1)
-						{
-							RecordedSamples.Append(Audio.PCMData);
-						}
-					}
-					Recorder.RawRecordingBlocks.Pop();
-				}
+				FDeepSpeechMicrophoneRecorder Recorder;
+				TAlignedSignedInt16Array RecordedSamples;
+				TFuture<FString> IntermediateTranscriptionResult;
+				bool bLastRequestTranscribe = false;
 
-				// Handle transcriptions state.
-				if (bLastRequestTranscribe != GTranscribeRequested)
+#if WITH_WEBRTC
+				// Create a WebRTC vad to determine voice level. 
+				VadInst* VadInstance = WebRtcVad_Create();
+				WebRtcVad_Init(VadInstance);
+#endif
+				
+				while (GTranscriberQueueRunning)
 				{
-					if (GTranscribeRequested)
+					// Collect the remaining recorded blocks.
+					while (Recorder.RawRecordingBlocks.Peek())
 					{
-						RecordedSamples.Empty();
-						// WebRTC supports frame lengths of 320 and 480 at a 16000 sample rate.
-						GTranscribeRequested = Recorder.StartRecording(16000, 480);
-					}
-					else
-					{
-						Recorder.StopRecording();
-
-						//
-						// AsyncTask(ENamedThreads::GameThread, [=, SampleRate = Recorder.RecordingSampleRate]()
-						// {
-						// 	FDeepSpeechMicrophoneRecorder::SaveAsWavMono(RecordedSamples, TEXT("/Game/TranscriberAudio/"), TEXT("TranscriberAudio"), SampleRate);
-						// });
-						
-						DispatchedFutures.Emplace(AsyncThread([LoadedModel = LoadedModel, RecordedSamples]()
+						const FDeinterleavedAudio& Audio = *Recorder.RawRecordingBlocks.Peek();
+						if (Audio.PCMData.Num() > 0)
 						{
-							if (LoadedModel)
+							bool bVoiceDetected = true;
+
+#if WITH_WEBRTC
+							const int32 VoiceStatus = WebRtcVad_Process(VadInstance, Recorder.RecordingSampleRate, Audio.PCMData.GetData(),
+							                                            Audio.PCMData.Num());
+							bVoiceDetected = VoiceStatus == 1 || VoiceStatus == -1;
+#endif
+							// Let audio data in if the vad has detected a voice level, or if it errors out due to a special mic or something.
+
+							if (bVoiceDetected)
 							{
-								char* TranscriptionChar = DS_SpeechToText(LoadedModel, RecordedSamples.GetData(),
-								                                          RecordedSamples.GetTypeSize() * RecordedSamples.Num());
-
-								if (TranscriptionChar)
-								{
-									const FString& Word = FString(TranscriptionChar);
-									UE_LOG(LogUETensorVox, Log, TEXT("Finished transcription with: %s"), *Word);
-									DS_FreeString(TranscriptionChar);
-								}
+								RecordedSamples.Append(Audio.PCMData);
 							}
-						}, 0, EThreadPriority::TPri_Normal));
+						}
+						Recorder.RawRecordingBlocks.Pop();
 					}
-					bLastRequestTranscribe = GTranscribeRequested;
+
+					// Handle transcriptions state.
+					if (bLastRequestTranscribe != GTranscribeRequested)
+					{
+						if (GTranscribeRequested)
+						{
+							RecordedSamples.Empty();
+							// WebRTC supports frame lengths of 320 and 480 at a 16000 sample rate.
+							GTranscribeRequested = Recorder.StartRecording(16000, 480);
+						}
+						else
+						{
+							Recorder.StopRecording();
+
+							//
+							// AsyncTask(ENamedThreads::GameThread, [=, SampleRate = Recorder.RecordingSampleRate]()
+							// {
+							// 	FDeepSpeechMicrophoneRecorder::SaveAsWavMono(RecordedSamples, TEXT("/Game/TranscriberAudio/"), TEXT("TranscriberAudio"), SampleRate);
+							// });
+
+							DispatchedFuturesVoid.Emplace(AsyncThread([LoadedModel = LoadedModel, RecordedSamples]()
+							{
+								if (LoadedModel)
+								{
+									char* TranscriptionChar = DS_SpeechToText(LoadedModel, RecordedSamples.GetData(),
+									                                          RecordedSamples.GetTypeSize() * RecordedSamples.Num());
+
+									if (TranscriptionChar)
+									{
+										const FString& Word = FString(TranscriptionChar);
+										UE_LOG(LogUETensorVox, Log, TEXT("Finished transcription with: %s"), *Word);
+										DS_FreeString(TranscriptionChar);
+									}
+								}
+							}, 0, EThreadPriority::TPri_Normal));
+						}
+						bLastRequestTranscribe = GTranscribeRequested;
+					}
+					GTranscribeQueueNotify->Wait(FMath::TruncToInt(Config.AsyncTickTranscriptionInterval * 1000.0f));
 				}
-				GTranscribeQueueNotify->Wait(FMath::TruncToInt(Config.AsyncTickTranscriptionInterval * 1000.0f));
-			}
 
-			// Clean up WebRTC.
-			WebRtcVad_Free(VadInstance);
+#if WITH_WEBRTC
+				// Clean up WebRTC.
+				WebRtcVad_Free(VadInstance);
+#endif WITH_WEBRTC
+				
+				// The futures use the model, so we can't clean it up until they are done. 
+				for (const TFuture<void>& Dispatch : DispatchedFuturesVoid)
+				{
+					Dispatch.Wait();
+				}
 
-			// The futures use the model, so we can't clean it up until they are done. 
-			for(const TFuture<void>& Dispatch : DispatchedFutures)
-			{
-				Dispatch.Wait();
+				// The futures use the model, so we can't clean it up until they are done. 
+				for (const TFuture<FString>& Dispatch : DispatchedFuturesString)
+				{
+					Dispatch.Wait();
+				}
+
+				DS_FreeModel(LoadedModel);
 			}
-			
-			DS_FreeModel(LoadedModel);
 			UE_LOG(LogUETensorVox, Warning, TEXT("Stopped transcription worker."));
 		}, 0, EThreadPriority::TPri_Normal);
 	}
 }
 
-void UAudioTranscriberComponent::DestroyTranscriptionThread()
+void UAudioTranscriberComponent::DestroyTranscriptionThread(UAudioTranscriberComponent* TranscriberComponent)
 {
-	if (CanLoadModel())
+	if (TranscriberComponent && TranscriberComponent->CanLoadModel())
 	{
 		GTranscriberQueueRunning = false;
-		NotifyThread();
+		NotifyTranscriptionThread();
 	}
 }
 
@@ -161,7 +173,7 @@ void UAudioTranscriberComponent::TickComponent(float DeltaTime, ELevelTick TickT
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
 
-	CreateTranscriptionThread();
+	CreateTranscriptionThread(this);
 }
 
 void UAudioTranscriberComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -169,7 +181,7 @@ void UAudioTranscriberComponent::EndPlay(const EEndPlayReason::Type EndPlayReaso
 	if (CanLoadModel())
 	{
 		EndRealtimeTranscription();
-		DestroyTranscriptionThread();
+		DestroyTranscriptionThread(this);
 	}
 
 	Super::EndPlay(EndPlayReason);
@@ -181,7 +193,7 @@ void UAudioTranscriberComponent::StartRealtimeTranscription()
 	if (CanLoadModel())
 	{
 		GTranscribeRequested = true;
-		NotifyThread();
+		NotifyTranscriptionThread();
 	}
 }
 
@@ -190,11 +202,11 @@ void UAudioTranscriberComponent::EndRealtimeTranscription()
 	if (CanLoadModel())
 	{
 		GTranscribeRequested = false;
-		NotifyThread();
+		NotifyTranscriptionThread();
 	}
 }
 
-void UAudioTranscriberComponent::NotifyThread()
+void UAudioTranscriberComponent::NotifyTranscriptionThread()
 {
 	if (GTranscribeQueueNotify)
 	{

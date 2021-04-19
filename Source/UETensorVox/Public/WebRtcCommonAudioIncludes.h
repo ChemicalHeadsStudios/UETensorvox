@@ -1,5 +1,13 @@
 ﻿#pragma once
 
+#ifndef WITH_WEBRTC
+#if defined(WEBRTC_WIN) || defined(WEBRTC_POSX) || defined(WEBRTC_ORBIS)
+#define WITH_WEBRTC 1
+#endif
+#endif
+
+#if WITH_WEBRTC
+
 #include "Windows/AllowWindowsPlatformTypes.h"
 #include "Windows/AllowWindowsPlatformAtomics.h"
 THIRD_PARTY_INCLUDES_START
@@ -43,3 +51,5 @@ THIRD_PARTY_INCLUDES_START
 #include <string>
 #include <memory>
 THIRD_PARTY_INCLUDES_END
+
+#endif
