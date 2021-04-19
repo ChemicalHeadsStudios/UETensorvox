@@ -46,6 +46,7 @@ THIRD_PARTY_INCLUDES_START
 #pragma warning(disable: 4582 6319 6323)
 // WebRTC include
 #include "common_audio/vad/include/webrtc_vad.h"
+#include "common_audio/fir_filter_sse.h"
 #pragma warning(pop)
 // because WebRTC uses STL
 #include <string>

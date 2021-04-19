@@ -7,7 +7,6 @@
 
 #include "AudioTranscriberComponent.generated.h"
 
-
 USTRUCT(BlueprintType)
 struct FDeepSpeechConfiguration
 {
@@ -15,7 +14,7 @@ struct FDeepSpeechConfiguration
 public:
 	FDeepSpeechConfiguration() : BeamWidth(0), AsyncTickTranscriptionInterval(1.0)
 	{
-		
+		ModelAlphaBeta = {INDEX_NONE, INDEX_NONE};
 	}
 	
 	UPROPERTY(Category="DeepSpeech Audio Configuration", BlueprintReadOnly, EditAnywhere)
@@ -29,7 +28,12 @@ public:
 	
 	UPROPERTY(Category="DeepSpeech Audio Configuration", BlueprintReadOnly, EditAnywhere)
 	float AsyncTickTranscriptionInterval;
+	
+	UPROPERTY(Category="DeepSpeech Audio Configuration", BlueprintReadOnly, EditAnywhere)
+	FVector2D ModelAlphaBeta;
 };
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FAudioTranscriptionEvent, FString, Transcribed, bool, bFinalTranscription, int32, TranscriptionId);
 
 UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent), meta=(DisplayName="DeepSpeech Audio Transcriber"))
 class UETENSORVOX_API UAudioTranscriberComponent : public UActorComponent
@@ -44,6 +48,7 @@ public:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
+	
 	virtual void PushTranscribeResult(const FString& TrancribedResult, bool bFinal = false);
 	
 	virtual void StartRealtimeTranscription();
@@ -56,6 +61,9 @@ public:
 
 	UPROPERTY(Category="DeepSpeech Audio Transcriber", BlueprintReadOnly, EditAnywhere)
 	FDeepSpeechConfiguration SpeechConfiguration;
+
+	UPROPERTY(Category="DeepSpeech Audio Transcriber",BlueprintAssignable)
+	FAudioTranscriptionEvent OnAudioTranscribed;
 	
 protected:
 	virtual bool CanLoadModel();
