@@ -6,6 +6,7 @@
 #include "deepspeech.h"
 #include "IPluginManager.h"
 
+
 #define LOCTEXT_NAMESPACE "FUETensorVoxModule"
 
 DEFINE_LOG_CATEGORY(LogUETensorVox);

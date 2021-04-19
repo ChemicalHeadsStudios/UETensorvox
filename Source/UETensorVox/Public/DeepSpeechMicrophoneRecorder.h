@@ -2,6 +2,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
+
+#include "UETensorVox.h"
 #include "HAL/ThreadSafeBool.h"
 #if PLATFORM_WINDOWS
 #include "Windows/WindowsHWrapper.h"
@@ -11,13 +13,10 @@ THIRD_PARTY_INCLUDES_START
 THIRD_PARTY_INCLUDES_END
 
 
-UETENSORVOX_API typedef TArray<int16, TAlignedHeapAllocator<AUDIO_BUFFER_ALIGNMENT>> FAlignedSignedInt16Array;
-
-
 // Buffers to de-interleave recorded audio
 UETENSORVOX_API struct FDeinterleavedAudio
 {
-	FAlignedSignedInt16Array PCMData;
+	TAlignedSignedInt16Array PCMData;
 };
 /**
  * FDeepSpeechMicrophoneRecorder
@@ -39,11 +38,17 @@ public:
 	// Called by RtAudio when a new audio buffer is ready to be supplied.
 	int32 OnAudioCapture(void* InBuffer, uint32 InBufferFrames, double StreamTime, bool bOverflow);
 	TArray<FDeinterleavedAudio> ProcessSamples(TArray<int16> InSamples);
-	
+
+	/**
+	 * Save samples with the recorder's settings.
+	 */
+	static USoundWave* SaveAsWavMono(const TAlignedSignedInt16Array& Samples, const FString& Path, const FString& AssetName, const int16& RecordedSampleRate);
+
 	// static TArray<int16> DownmixStereoToMono(const TArray<int16>& FirstChannel, const TArray<int16>& SecondChannel);
 public:
 
 	TQueue<FDeinterleavedAudio> RawRecordingBlocks;
+	int32 RecordingSampleRate;
 
 private:
 	RtAudio ADCInstance;
@@ -51,7 +56,6 @@ private:
 	RtAudio::StreamParameters StreamParams;
 protected:
 
-	int32 RecordingSampleRate;
 	int32 TargetSampleRate;
 	
 	int32 NumOverflowsDetected;

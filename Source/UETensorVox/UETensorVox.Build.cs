@@ -27,7 +27,8 @@ public class UETensorVox : ModuleRules
 			new string[]
 			{
 				"AudioMixer",
-				"AudioPlatformConfiguration"
+				"AudioPlatformConfiguration",
+				"WebRTC"
 			}
 		);
 
@@ -51,5 +52,7 @@ public class UETensorVox : ModuleRules
 			// Allow us to use direct sound
 			AddEngineThirdPartyPrivateStaticDependencies(Target, "DirectSound");
 		}
+		
+		AddEngineThirdPartyPrivateStaticDependencies(Target, "WebRTC");
 	}
 }

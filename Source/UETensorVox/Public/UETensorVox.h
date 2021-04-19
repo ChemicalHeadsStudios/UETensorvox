@@ -3,7 +3,7 @@
 #pragma once
 #include "Modules/ModuleManager.h"
 
-
+UETENSORVOX_API typedef TArray<int16, TAlignedHeapAllocator<AUDIO_BUFFER_ALIGNMENT>> TAlignedSignedInt16Array;
 DECLARE_LOG_CATEGORY_EXTERN(LogUETensorVox, Log, All);
 
 class FUETensorVoxModule : public IModuleInterface

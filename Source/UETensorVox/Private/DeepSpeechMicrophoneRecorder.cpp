@@ -1,8 +1,7 @@
 ﻿#include "DeepSpeechMicrophoneRecorder.h"
-
-#include "Misc/ScopeLock.h"
-#include "DSP/Dsp.h"
+#include "AssetRegistryModule.h"
 #include "UETensorVox.h"
+#include "Components/AudioComponent.h"
 
 
 /**
@@ -50,13 +49,13 @@ bool FDeepSpeechMicrophoneRecorder::StartRecording(int32 InTargetSampleRate, int
 		return false;
 	}
 
-	if(bRecording)
+	if (bRecording)
 	{
 		StopRecording();
 	}
 
 	TargetSampleRate = InTargetSampleRate;
-	
+
 	// If we have a stream open close it (reusing streams can cause a blip of previous recordings audio)
 	if (ADCInstance.isStreamOpen())
 	{
@@ -80,7 +79,7 @@ bool FDeepSpeechMicrophoneRecorder::StartRecording(int32 InTargetSampleRate, int
 
 
 	bool bSampleRateFound = false;
-	
+
 	for (auto SampleRate : Info.sampleRates)
 	{
 		if (static_cast<int32>(SampleRate) == TargetSampleRate)
@@ -91,7 +90,7 @@ bool FDeepSpeechMicrophoneRecorder::StartRecording(int32 InTargetSampleRate, int
 		}
 	}
 
-	if(!bSampleRateFound)
+	if (!bSampleRateFound)
 	{
 		UE_LOG(LogUETensorVox, Warning, TEXT("Sample %i rate not found. Selecting nearest."), TargetSampleRate);
 
@@ -120,26 +119,26 @@ bool FDeepSpeechMicrophoneRecorder::StartRecording(int32 InTargetSampleRate, int
 	}
 
 
-	if(RecordingSampleRate < 0)
+	if (RecordingSampleRate < 0)
 	{
 		UE_LOG(LogUETensorVox, Warning, TEXT("Invalid sample rate provided %i."), TargetSampleRate);
 		return false;
 	}
 
-	
+
 	RawRecordingBlocks.Empty();
 	NumOverflowsDetected = 0;
 	// Publish to the mic input thread that we're ready to record...
 	bRecording = true;
-	
+
 	StreamParams.deviceId = ADCInstance.getDefaultInputDevice(); // Only use the default input device for now
 	StreamParams.nChannels = 1;
 	StreamParams.firstChannel = 0;
 	uint32 BufferFrames = FMath::Max(RecordingBlockSize, 256);
 
-	
+
 	UE_LOG(LogUETensorVox, Log,
-	       TEXT("Initialized mic recording manager at %d hz sample rate, %d channels, and %d Recording Block Size"),
+	       TEXT("Started microphone recording at %d hz sample rate, %d channels, and %d frame size."),
 	       RecordingSampleRate, StreamParams.nChannels, BufferFrames);
 
 	// RtAudio uses exceptions for error handling... 
@@ -198,7 +197,8 @@ static void SampleRateConvert(float CurrentSR, float TargetSR, int32 NumChannels
 
 	float SrFactor = (double)CurrentSR / TargetSR;
 	float CurrentFrameIndexInterpolated = 0.0f;
-	checkf(NumSamplesToConvert <= InSamples.Num(), TEXT("Desample frame length mismatch! NumSamplesToConvert %i, InSamples Num %i"), NumSamplesToConvert, InSamples.Num());
+	checkf(NumSamplesToConvert <= InSamples.Num(), TEXT("Desample frame length mismatch! NumSamplesToConvert %i, InSamples Num %i"),
+	       NumSamplesToConvert, InSamples.Num());
 	int32 NumFramesToConvert = NumSamplesToConvert / NumChannels;
 	int32 CurrentFrameIndex = 0;
 
@@ -239,16 +239,16 @@ static void SampleRateConvert(float CurrentSR, float TargetSR, int32 NumChannels
 TArray<FDeinterleavedAudio> FDeepSpeechMicrophoneRecorder::ProcessSamples(
 	TArray<int16> InSamples)
 {
-
 	const int32 InputChannelCount = NumInputChannels.GetValue();
 	TArray<FDeinterleavedAudio> OutResampled;
-	
+
 	if (InSamples.Num() > 0)
 	{
 		if (RecordingSampleRate != TargetSampleRate)
 		{
 			TArray<int16> Resampled;
-			SampleRateConvert((float)RecordingSampleRate, (float)TargetSampleRate, InputChannelCount, InSamples, InSamples.Num(), Resampled);
+			SampleRateConvert((float)RecordingSampleRate, (float)TargetSampleRate, InputChannelCount, InSamples, InSamples.Num(),
+			                  Resampled);
 			InSamples = Resampled;
 		}
 
@@ -257,14 +257,89 @@ TArray<FDeinterleavedAudio> FDeepSpeechMicrophoneRecorder::ProcessSamples(
 		SingleChannel.PCMData = InSamples;
 
 		OutResampled.Add(SingleChannel);
-		
 	}
 	return OutResampled;
 }
 
+USoundWave* FDeepSpeechMicrophoneRecorder::SaveAsWavMono(const TAlignedSignedInt16Array& Samples, const FString& Path,
+                                                         const FString& AssetName, const int16& RecordedSampleRate)
+{
+	if (Samples.Num() > 0)
+	{
+		const FString& PackageName = Path / AssetName;
+		UPackage* Package = CreatePackage(nullptr, *PackageName);
+
+		const int32 NumBytes = Samples.Num() * Samples.GetTypeSize();
+		TArray<uint8> RawWaveData;
+		SerializeWaveFile(RawWaveData, (uint8*)Samples.GetData(), NumBytes, 1, RecordedSampleRate);
+
+		// Check to see if a sound wave already exists at this location
+		USoundWave* ExistingSoundWave = FindObject<USoundWave>(Package, *AssetName);
+
+		// See if it's currently being played right now
+		TArray<UAudioComponent*> ComponentsToRestart;
+		FAudioDeviceManager* AudioDeviceManager = GEngine->GetAudioDeviceManager();
+		if (AudioDeviceManager && ExistingSoundWave)
+		{
+			AudioDeviceManager->StopSoundsUsingResource(ExistingSoundWave, &ComponentsToRestart);
+		}
+
+		// Create a new sound wave object
+		USoundWave* NewSoundWave;
+		if (ExistingSoundWave)
+		{
+			NewSoundWave = ExistingSoundWave;
+			NewSoundWave->FreeResources();
+		}
+		else
+		{
+			NewSoundWave = NewObject<USoundWave>(Package, *AssetName, RF_Public | RF_Standalone);
+		}
+
+		// Compressed data is now out of date.
+		NewSoundWave->InvalidateCompressedData(true, false);
+
+		// Copy the raw wave data file to the sound wave for storage. Will allow the recording to be exported.
+		NewSoundWave->RawData.Lock(LOCK_READ_WRITE);
+		void* LockedData = NewSoundWave->RawData.Realloc(RawWaveData.Num());
+		FMemory::Memcpy(LockedData, RawWaveData.GetData(), RawWaveData.Num());
+		NewSoundWave->RawData.Unlock();
+
+		if (NewSoundWave)
+		{
+			// Copy the recorded data to the sound wave so we can quickly preview it
+			NewSoundWave->RawPCMDataSize = NumBytes;
+			NewSoundWave->RawPCMData = (uint8*)FMemory::Malloc(NewSoundWave->RawPCMDataSize);
+			FMemory::Memcpy(NewSoundWave->RawPCMData, Samples.GetData(), NumBytes);
+
+			// Calculate the duration of the sound wave
+			// Note: We use the NumInputChannels for duration calculation since NumChannelsToSerialize may be 1 channel while NumInputChannels is 2 for the "split stereo" feature.
+			NewSoundWave->Duration = (float)Samples.Num() / (float)RecordedSampleRate;
+			NewSoundWave->SetSampleRate((float)RecordedSampleRate);
+			NewSoundWave->NumChannels = 1;
+
+
+			//GEditor->GetEditorSubsystem<UImportSubsystem>()->BroadcastAssetPostImport(this, NewSoundWave);
+
+			FAssetRegistryModule::AssetCreated(NewSoundWave);
+			NewSoundWave->MarkPackageDirty();
+
+			// Restart any audio components if they need to be restarted
+			for (int32 ComponentIndex = 0; ComponentIndex < ComponentsToRestart.Num(); ++ComponentIndex)
+			{
+				ComponentsToRestart[ComponentIndex]->Play();
+			}
+
+
+			return NewSoundWave;
+		}
+	}
+	return nullptr;
+}
+
 void FDeepSpeechMicrophoneRecorder::StopRecording()
 {
-	UE_LOG(LogUETensorVox, Log, TEXT("Stopping mic recording"));
+	UE_LOG(LogUETensorVox, Log, TEXT("Stopped recording microphone."));
 
 	if (bRecording)
 	{
@@ -282,8 +357,8 @@ int32 FDeepSpeechMicrophoneRecorder::OnAudioCapture(void* InBuffer, uint32 InBuf
 		{
 			++NumOverflowsDetected;
 		}
-		
-		FAlignedSignedInt16Array Block;
+
+		TAlignedSignedInt16Array Block;
 		Block.Append((int16*)InBuffer, InBufferFrames);
 		RawRecordingBlocks.Enqueue(FDeinterleavedAudio{Block});
 		return 0;

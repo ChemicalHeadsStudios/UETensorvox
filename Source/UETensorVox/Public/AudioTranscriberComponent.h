@@ -3,6 +3,8 @@
 #include "CoreMinimal.h"
 #include "AudioCaptureComponent.h"
 #include "GameplayTagContainer.h"
+#include "UETensorVox.h"
+
 #include "AudioTranscriberComponent.generated.h"
 
 
@@ -42,13 +44,14 @@ public:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
-	TSharedPtr<FThreadSafeBool, ESPMode::ThreadSafe> bTranscriberRunning;
-
+	
 	virtual void StartRealtimeTranscription();
 
 	virtual void EndRealtimeTranscription();
+	virtual void NotifyThread();
 
-	static int16 ArrayMean(const TArray<int16>& InView);
+	
+	static int16 ArrayMean(const TAlignedSignedInt16Array& InView);
 	
 public:
 
@@ -61,9 +64,7 @@ protected:
 	virtual bool CanLoadModel();
 
 	virtual void CreateTranscriptionThread();
-
-
-	TSharedPtr<FString, ESPMode::ThreadSafe> TranscribedWords;
+	virtual void DestroyTranscriptionThread();
 	
 	/**
 	 * The input device's sample rate. Gathered at runtime.
@@ -73,9 +74,6 @@ protected:
 	 * Model sample rate, gathered at runtime when 
 	 */
 	int32 ModelSampleRate;
-
-	// Cleaned up by the interference thread.
-	FEvent* QueueNotify;
 
 	TFuture<void> ThreadHandle;
 	
