@@ -79,10 +79,14 @@ void UAudioTranscriberComponent::CreateTranscriptionThread(UAudioTranscriberComp
 				TFuture<FString> IntermediateTranscriptionResult;
 				bool bLastRequestTranscribe = false;
 
+				// VAD Aggressiveness mode (0, 1, 2, or 3).
+				const int32 VadAggressivenes = 0;
+
 #if WITH_WEBRTC
 				// Create a WebRTC vad to determine voice level. 
 				VadInst* VadInstance = WebRtcVad_Create();
-				WebRtcVad_Init(VadInstance);
+				WebRtcVad_Init(VadInstance);				
+				WebRtcVad_set_mode(VadInstance, VadAggressivenes);
 #endif
 
 				StreamingState* StreamState = nullptr;				
@@ -207,7 +211,7 @@ void UAudioTranscriberComponent::CreateTranscriptionThread(UAudioTranscriberComp
 											if (!Word.IsEmpty())
 											{
 												// Check if game thread is up
-												if (!FThreadManager::Get().GetThreadName(GGameThreadId).IsEmpty())
+												if (!IsEngineExitRequested())
 												{
 													AsyncTask(ENamedThreads::GameThread, [TranscriberComponent, Word]()
 													{
@@ -216,7 +220,7 @@ void UAudioTranscriberComponent::CreateTranscriptionThread(UAudioTranscriberComp
 															TranscriberComponent->PushTranscribeResult(Word, true);
 														}
 													});
-												}
+												} 
 											}
 
 											DS_FreeString(TranscriptionChar);
@@ -232,7 +236,7 @@ void UAudioTranscriberComponent::CreateTranscriptionThread(UAudioTranscriberComp
 #if 0
 							AsyncTask(ENamedThreads::GameThread, [=, SampleRate = Recorder.RecordingSampleRate]()
 							{
-								FDeepSpeechMicrophoneRecorder::SaveAsWavMono(RecordedSamples, TEXT("/Game/TranscriberAudio/"), TEXT("TranscriberAudio"), SampleRate);
+								FDeepSpeechMicrophoneRecorder::SaveAsWavMono(RecordedSamples, TEXT("/Game/TranscriberAudio/"), FString::Printf(TEXT("TranscriberAudioVAD%i"), VadAggressivenes), SampleRate);
 							});
 #endif
 						}
