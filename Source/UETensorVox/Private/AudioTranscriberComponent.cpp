@@ -2,6 +2,7 @@
 #include "UETensorVox.h"
 #include "deepspeech.h"
 #include "DeepSpeechMicrophoneRecorder.h"
+#include "ThreadManager.h"
 #include "WebRtcCommonAudioIncludes.h"
 
 UAudioTranscriberComponent::UAudioTranscriberComponent(const FObjectInitializer& ObjectInitializer) : Super(ObjectInitializer)
@@ -42,6 +43,15 @@ void UAudioTranscriberComponent::CreateTranscriptionThread(UAudioTranscriberComp
 					DS_FreeModel(Model);
 					return;
 				}
+
+				if (Config.ModelAlphaBeta.X != INDEX_NONE || Config.ModelAlphaBeta.Y != INDEX_NONE)
+				{
+					if (CheckForError(TEXT("SetAlphaBeta"), DS_SetScorerAlphaBeta(Model, Config.ModelAlphaBeta.X, Config.ModelAlphaBeta.Y)))
+					{
+						DS_FreeModel(Model);
+						return;
+					}
+				}
 			}
 
 			if (Config.BeamWidth != 0)
@@ -53,17 +63,14 @@ void UAudioTranscriberComponent::CreateTranscriptionThread(UAudioTranscriberComp
 				}
 			}
 
-			if (Config.ModelAlphaBeta.X != INDEX_NONE || Config.ModelAlphaBeta.Y != INDEX_NONE)
-			{
-				if(CheckForError(TEXT("SetAlphaBeta"), DS_SetScorerAlphaBeta(Model, Config.ModelAlphaBeta.X, Config.ModelAlphaBeta.Y)))
-				{
-					DS_FreeModel(Model);
-					return;
-				}
-			}
-
-
-			const float GarbageFeedStart = 0.5f, GarbageFeedEnd = 0.0f;
+	
+			const float GarbageFeedStart = 0.3f, GarbageFeedEnd = 0.1f;
+			
+			// We use VAD to determine what silence is and we just fill a buffer with the largest amount of garbage we need.
+			const int32 SampleRate = 16000;
+			const int32 SilenceTargetSamples = FMath::Max(GarbageFeedEnd, GarbageFeedStart) * (float)SampleRate;
+			TAlignedSignedInt16Array Silence;
+			Silence.Reserve(SilenceTargetSamples);
 			
 			UE_LOG(LogUETensorVox, Warning, TEXT("Started transcription worker. Model (alpha, beta): %s"), *Config.ModelAlphaBeta.ToString());
 			{
@@ -104,7 +111,14 @@ void UAudioTranscriberComponent::CreateTranscriptionThread(UAudioTranscriberComp
 									DS_FeedAudioContent(StreamState, Audio.PCMData.GetData(), Audio.PCMData.Num());
 									bFeedVoiceData = true;
 								}
-
+							} else if(Silence.Num() != SilenceTargetSamples)
+							{
+								// Fill silence buffer
+								const int32 SamplesToAdd = FMath::Min(Audio.PCMData.Num(), SilenceTargetSamples - Silence.Num());
+								if (SamplesToAdd > 0)
+								{
+									Silence.Append(Audio.PCMData.GetData(), SamplesToAdd);
+								}
 							}
 						}
 						Recorder.RawRecordingBlocks.Pop();
@@ -140,7 +154,7 @@ void UAudioTranscriberComponent::CreateTranscriptionThread(UAudioTranscriberComp
 							RecordedSamples.Empty();
 							
 							// WebRTC vad supports frame lengths of 320 and 480 at a 16000 sample rate.
-							GTranscribeRequested = Recorder.StartRecording(16000, 480);
+							GTranscribeRequested = Recorder.StartRecording(SampleRate, 480);
 							if(GTranscribeRequested)
 							{
 								if(!CheckForError(TEXT("StreamingState Init"), DS_CreateStream(Model, &StreamState)))
@@ -148,10 +162,16 @@ void UAudioTranscriberComponent::CreateTranscriptionThread(UAudioTranscriberComp
 									if (GarbageFeedStart > 0.0f)
 									{
                                         TAlignedSignedInt16Array Garbage;
-                                        Garbage.SetNumZeroed(FMath::TruncToInt(16000 * GarbageFeedStart));
+										if(Silence.Num() == SilenceTargetSamples)
+										{
+											Garbage = TAlignedSignedInt16Array(Silence, (float)Silence.Num() * GarbageFeedStart);
+										} else
+										{
+											Garbage.SetNumZeroed(FMath::TruncToInt((float)SampleRate * GarbageFeedStart));												
+										}
+										
                                         DS_FeedAudioContent(StreamState, Garbage.GetData(), Garbage.Num());
                                     }
-									UE_LOG(LogUETensorVox, Warning, TEXT("Fed garbage"));
 								}
 							}
 						}
@@ -159,31 +179,44 @@ void UAudioTranscriberComponent::CreateTranscriptionThread(UAudioTranscriberComp
 						{
 							if (StreamState)
 							{
-								DispatchedFuturesVoid.Emplace(AsyncThread([Model, GarbageFeedEnd, TranscriberComponent, InStreamState = StreamState]()
+								DispatchedFuturesVoid.Emplace(AsyncThread(
+									[=]()
 								{
 									if (Model)
 									{
 										if (GarbageFeedEnd > 0.0f)
 										{
 											TAlignedSignedInt16Array Garbage;
-											Garbage.SetNumZeroed(FMath::TruncToInt(16000 * GarbageFeedEnd));
-											DS_FeedAudioContent(InStreamState, Garbage.GetData(), Garbage.Num());
+											if (Silence.Num() == SilenceTargetSamples)
+											{
+												Garbage = TAlignedSignedInt16Array(Silence, (float)Silence.Num() * GarbageFeedEnd);
+												UE_LOG(LogUETensorVox, Warning, TEXT("Used filled silence buffer"));
+											}
+											else
+											{
+												Garbage.SetNumZeroed(FMath::TruncToInt((float)SampleRate * GarbageFeedEnd));
+											}
 										}
+
+										
 										UE_LOG(LogUETensorVox, Warning, TEXT("Fed garbage"));
-										char* TranscriptionChar = DS_FinishStream(InStreamState);
+										char* TranscriptionChar = DS_FinishStream(StreamState);
 										if (TranscriptionChar)
 										{
 											const FString& Word = FString(TranscriptionChar);
 											if (!Word.IsEmpty())
 											{
-												AsyncTask(ENamedThreads::GameThread, [TranscriberComponent, Word]()
+												// Check if game thread is up
+												if (!FThreadManager::Get().GetThreadName(GGameThreadId).IsEmpty())
 												{
-													if (IsValid(TranscriberComponent))
+													AsyncTask(ENamedThreads::GameThread, [TranscriberComponent, Word]()
 													{
-														TranscriberComponent->PushTranscribeResult(Word, true);
-														UE_LOG(LogUETensorVox, Warning, TEXT("Pushing final result"));
-													}
-												});
+														if (IsValid(TranscriberComponent))
+														{
+															TranscriberComponent->PushTranscribeResult(Word, true);
+														}
+													});
+												}
 											}
 
 											DS_FreeString(TranscriptionChar);
@@ -196,7 +229,7 @@ void UAudioTranscriberComponent::CreateTranscriptionThread(UAudioTranscriberComp
 							
 							// Finish recording
 							Recorder.StopRecording();
-#if 1
+#if 0
 							AsyncTask(ENamedThreads::GameThread, [=, SampleRate = Recorder.RecordingSampleRate]()
 							{
 								FDeepSpeechMicrophoneRecorder::SaveAsWavMono(RecordedSamples, TEXT("/Game/TranscriberAudio/"), TEXT("TranscriberAudio"), SampleRate);
@@ -243,8 +276,6 @@ void UAudioTranscriberComponent::BeginPlay()
 void UAudioTranscriberComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
-
-
 	CreateTranscriptionThread(this);
 }
 
