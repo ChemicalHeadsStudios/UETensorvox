@@ -4,7 +4,6 @@
 #include "AudioCaptureComponent.h"
 #include "GameplayTagContainer.h"
 #include "UETensorVox.h"
-
 #include "AudioTranscriberComponent.generated.h"
 
 USTRUCT(BlueprintType)

@@ -1,9 +1,12 @@
 ﻿#include "AudioTranscriberComponent.h"
-#include "UETensorVox.h"
-#include "deepspeech.h"
-#include "DeepSpeechMicrophoneRecorder.h"
 #include "ThreadManager.h"
+
+#include "UETensorVox.h"
+#if TENSORVOX_VALID_PLATFORM
+#include "DeepSpeechMicrophoneRecorder.h"
 #include "WebRtcCommonAudioIncludes.h"
+#include "deepspeech.h"
+#endif
 
 UAudioTranscriberComponent::UAudioTranscriberComponent(const FObjectInitializer& ObjectInitializer) : Super(ObjectInitializer)
 {
@@ -20,6 +23,8 @@ FEvent* GTranscribeQueueNotify = FPlatformProcess::GetSynchEventFromPool();
 
 void UAudioTranscriberComponent::CreateTranscriptionThread(UAudioTranscriberComponent* TranscriberComponent)
 {
+#if TENSORVOX_VALID_PLATFORM
+
 	if (TranscriberComponent && TranscriberComponent->CanLoadModel() && !GTranscriberQueueRunning)
 	{
 		GTranscriberQueueRunning = true;
@@ -261,15 +266,18 @@ void UAudioTranscriberComponent::CreateTranscriptionThread(UAudioTranscriberComp
 			UE_LOG(LogUETensorVox, Warning, TEXT("Stopped transcription worker."));
 		}, 0, EThreadPriority::TPri_Normal);
 	}
+#endif
 }
 
 void UAudioTranscriberComponent::DestroyTranscriptionThread(UAudioTranscriberComponent* TranscriberComponent)
 {
+#if TENSORVOX_VALID_PLATFORM
 	if (TranscriberComponent && TranscriberComponent->CanLoadModel())
 	{
 		GTranscriberQueueRunning = false;
 		NotifyTranscriptionThread();
 	}
+#endif
 }
 
 void UAudioTranscriberComponent::BeginPlay()
@@ -280,16 +288,20 @@ void UAudioTranscriberComponent::BeginPlay()
 void UAudioTranscriberComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+#if TENSORVOX_VALID_PLATFORM
 	CreateTranscriptionThread(this);
+#endif
 }
 
 void UAudioTranscriberComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+#if TENSORVOX_VALID_PLATFORM
 	if (CanLoadModel())
 	{
 		EndRealtimeTranscription();
 		DestroyTranscriptionThread(this);
 	}
+#endif
 
 	Super::EndPlay(EndPlayReason);
 }
@@ -302,20 +314,25 @@ void UAudioTranscriberComponent::PushTranscribeResult(const FString& InTrancribe
 
 void UAudioTranscriberComponent::StartRealtimeTranscription()
 {
+#if TENSORVOX_VALID_PLATFORM
+
 	if (CanLoadModel())
 	{
 		GTranscribeRequested = true;
 		NotifyTranscriptionThread();
 	}
+#endif
 }
 
 void UAudioTranscriberComponent::EndRealtimeTranscription()
 {
+#if TENSORVOX_VALID_PLATFORM
 	if (CanLoadModel())
 	{
 		GTranscribeRequested = false;
 		NotifyTranscriptionThread();
 	}
+#endif
 }
 
 void UAudioTranscriberComponent::NotifyTranscriptionThread()
@@ -328,7 +345,7 @@ void UAudioTranscriberComponent::NotifyTranscriptionThread()
 
 bool UAudioTranscriberComponent::CanLoadModel()
 {
-#if UE_SERVER
+#if TENSORVOX_VALID_PLATFORM
 	return false;
 #endif
 	return true;
@@ -336,6 +353,7 @@ bool UAudioTranscriberComponent::CanLoadModel()
 
 bool UAudioTranscriberComponent::CheckForError(const FString& Name, int32 Error)
 {
+#if TENSORVOX_VALID_PLATFORM
 	if (Error != 0)
 	{
 		char* Buffer = DS_ErrorCodeToErrorMessage(Error);
@@ -344,5 +362,6 @@ bool UAudioTranscriberComponent::CheckForError(const FString& Name, int32 Error)
 		DS_FreeString(Buffer);
 		return true;
 	}
+#endif
 	return false;
 }

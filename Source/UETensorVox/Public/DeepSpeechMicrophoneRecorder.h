@@ -2,15 +2,18 @@
 #pragma once
 
 #include "CoreMinimal.h"
-
-#include "UETensorVox.h"
 #include "HAL/ThreadSafeBool.h"
 #if PLATFORM_WINDOWS
 #include "Windows/WindowsHWrapper.h"
 #endif
+
+#include "UETensorVox.h"
+
+#if TENSORVOX_VALID_PLATFORM 
 THIRD_PARTY_INCLUDES_START
 #include "RtAudio.h"
 THIRD_PARTY_INCLUDES_END
+#endif
 
 
 // Buffers to de-interleave recorded audio
@@ -51,9 +54,11 @@ public:
 	int32 RecordingSampleRate;
 
 private:
+#if TENSORVOX_VALID_PLATFORM
 	RtAudio ADCInstance;
 	// Stream parameters to initialize the ADCInstance
 	RtAudio::StreamParameters StreamParams;
+#endif
 protected:
 
 	int32 TargetSampleRate;

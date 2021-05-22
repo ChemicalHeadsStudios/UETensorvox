@@ -23,10 +23,6 @@
 	],
 	"Plugins": [
 		{
-			"Name": "UETensorFlow",
-			"Enabled": true
-		},
-		{
 			"Name": "AudioCapture",
 			"Enabled": true
 		}

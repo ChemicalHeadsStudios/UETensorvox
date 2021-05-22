@@ -7,6 +7,7 @@
 /**
 * Callback Function For the Microphone Capture for RtAudio
 */
+#if TENSORVOX_VALID_PLATFORM
 static int32 OnAudioCaptureCallback(void* OutBuffer, void* InBuffer, uint32 InBufferFrames, double StreamTime,
                                     RtAudioStreamStatus AudioStreamStatus, void* InUserData)
 {
@@ -19,6 +20,7 @@ static int32 OnAudioCaptureCallback(void* OutBuffer, void* InBuffer, uint32 InBu
 	// Call the mic capture callback function
 	return AudioRecordingManager->OnAudioCapture(InBuffer, InBufferFrames, StreamTime, AudioStreamStatus == RTAUDIO_INPUT_OVERFLOW);
 }
+#endif 
 
 /**
 * FDeepSpeechMicrophoneRecorder Implementation
@@ -36,14 +38,18 @@ FDeepSpeechMicrophoneRecorder::FDeepSpeechMicrophoneRecorder()
 
 FDeepSpeechMicrophoneRecorder::~FDeepSpeechMicrophoneRecorder()
 {
+#if TENSORVOX_VALID_PLATFORM
+
 	if (ADCInstance.isStreamOpen())
 	{
 		ADCInstance.abortStream();
 	}
+#endif
 }
 
 bool FDeepSpeechMicrophoneRecorder::StartRecording(int32 InTargetSampleRate, int32 RecordingBlockSize)
 {
+#if TENSORVOX_VALID_PLATFORM
 	if (bError)
 	{
 		return false;
@@ -55,6 +61,7 @@ bool FDeepSpeechMicrophoneRecorder::StartRecording(int32 InTargetSampleRate, int
 	}
 
 	TargetSampleRate = InTargetSampleRate;
+
 
 	// If we have a stream open close it (reusing streams can cause a blip of previous recordings audio)
 	if (ADCInstance.isStreamOpen())
@@ -76,9 +83,9 @@ bool FDeepSpeechMicrophoneRecorder::StartRecording(int32 InTargetSampleRate, int
 	// Get the default mic input device info
 	RtAudio::DeviceInfo Info = ADCInstance.getDeviceInfo(StreamParams.deviceId);
 	NumInputChannels.Set(Info.inputChannels);
-
-
+	
 	bool bSampleRateFound = false;
+
 
 	for (auto SampleRate : Info.sampleRates)
 	{
@@ -171,6 +178,8 @@ bool FDeepSpeechMicrophoneRecorder::StartRecording(int32 InTargetSampleRate, int
 
 	ADCInstance.startStream();
 	return true;
+#endif
+	return false;
 }
 
 // TArray<int16> FDeepSpeechMicrophoneRecorder::DownmixStereoToMono(const TArray<int16>& FirstChannel, const TArray<int16>& SecondChannel)
@@ -339,6 +348,7 @@ USoundWave* FDeepSpeechMicrophoneRecorder::SaveAsWavMono(const TAlignedSignedInt
 
 void FDeepSpeechMicrophoneRecorder::StopRecording()
 {
+#if TENSORVOX_VALID_PLATFORM
 	UE_LOG(LogUETensorVox, Log, TEXT("Stopped recording microphone."));
 
 	if (bRecording)
@@ -347,6 +357,7 @@ void FDeepSpeechMicrophoneRecorder::StopRecording()
 		ADCInstance.stopStream();
 		ADCInstance.closeStream();
 	}
+#endif
 }
 
 int32 FDeepSpeechMicrophoneRecorder::OnAudioCapture(void* InBuffer, uint32 InBufferFrames, double StreamTime, bool bOverflow)
