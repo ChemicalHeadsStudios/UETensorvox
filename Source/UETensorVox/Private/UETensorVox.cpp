@@ -58,8 +58,9 @@ bool* GGlobalHasAVX = nullptr;
 
 bool FUETensorVoxModule::HasAvx()
 {
+	// I wanted to use FPlatformMisc here instead but we don't have access to the full cpuId array in any of those functions.
 	// https://stackoverflow.com/questions/6121792/how-to-check-if-a-cpu-supports-the-sse3-instruction-set
-#if PLATFORM_HAS_CPUID
+#if PLATFORM_HAS_CPUID && !PLATFORM_UNIX
 	if (GGlobalHasAVX == nullptr)
 	{
 		int CpuInfo[4];
