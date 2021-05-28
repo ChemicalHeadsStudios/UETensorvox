@@ -24,8 +24,7 @@ FEvent* GTranscribeQueueNotify = FPlatformProcess::GetSynchEventFromPool();
 void UAudioTranscriberComponent::CreateTranscriptionThread(UAudioTranscriberComponent* TranscriberComponent)
 {
 #if TENSORVOX_VALID_PLATFORM
-
-	if (TranscriberComponent && TranscriberComponent->CanLoadModel() && !GTranscriberQueueRunning)
+	if (FUETensorVoxModule::CanRunTranscriber() && TranscriberComponent && TranscriberComponent->CanLoadModel() && !GTranscriberQueueRunning)
 	{
 		GTranscriberQueueRunning = true;
 		AsyncThread([TranscriberComponent, Config = TranscriberComponent->SpeechConfiguration]()
@@ -315,7 +314,6 @@ void UAudioTranscriberComponent::PushTranscribeResult(const FString& InTrancribe
 void UAudioTranscriberComponent::StartRealtimeTranscription()
 {
 #if TENSORVOX_VALID_PLATFORM
-
 	if (CanLoadModel())
 	{
 		GTranscribeRequested = true;
@@ -345,10 +343,10 @@ void UAudioTranscriberComponent::NotifyTranscriptionThread()
 
 bool UAudioTranscriberComponent::CanLoadModel()
 {
-#if TENSORVOX_VALID_PLATFORM
+#if !TENSORVOX_VALID_PLATFORM
 	return false;
 #endif
-	return true;
+	return FUETensorVoxModule::CanRunTranscriber();
 }
 
 bool UAudioTranscriberComponent::CheckForError(const FString& Name, int32 Error)
