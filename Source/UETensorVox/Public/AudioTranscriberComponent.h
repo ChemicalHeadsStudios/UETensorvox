@@ -1,36 +1,9 @@
 ﻿#pragma once
 
 #include "CoreMinimal.h"
-#include "AudioCaptureComponent.h"
-#include "GameplayTagContainer.h"
-#include "UETensorVox.h"
+#include "DeepSpeechConfiguration.h"
+#include "Components/ActorComponent.h"
 #include "AudioTranscriberComponent.generated.h"
-
-USTRUCT(BlueprintType)
-struct FDeepSpeechConfiguration
-{
-	GENERATED_BODY()
-public:
-	FDeepSpeechConfiguration() : BeamWidth(0), AsyncTickTranscriptionInterval(1.0)
-	{
-		ModelAlphaBeta = {INDEX_NONE, INDEX_NONE};
-	}
-	
-	UPROPERTY(Category="DeepSpeech Audio Configuration", BlueprintReadOnly, EditAnywhere)
-	int32 BeamWidth;
-	
-	UPROPERTY(Category="DeepSpeech Audio Configuration", BlueprintReadOnly, EditAnywhere)
-	FString ModelPath;
-
-	UPROPERTY(Category="DeepSpeech Audio Configuration", BlueprintReadOnly, EditAnywhere)
-	FString ScorerPath;
-	
-	UPROPERTY(Category="DeepSpeech Audio Configuration", BlueprintReadOnly, EditAnywhere)
-	float AsyncTickTranscriptionInterval;
-	
-	UPROPERTY(Category="DeepSpeech Audio Configuration", BlueprintReadOnly, EditAnywhere)
-	FVector2D ModelAlphaBeta;
-};
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FAudioTranscriptionEvent, FString, Transcribed, bool, bFinalTranscription, int32, TranscriptionId);
 
@@ -53,9 +26,6 @@ public:
 	virtual void StartRealtimeTranscription();
 
 	virtual void EndRealtimeTranscription();
-	
-	static int16 ArrayMean(const TAlignedSignedInt16Array& InView);
-	
 public:
 
 	UPROPERTY(Category="DeepSpeech Audio Transcriber", BlueprintReadOnly, EditAnywhere)

@@ -1,7 +1,6 @@
 // Copyright SIA CHEMICAL HEADS 2020
 
 #pragma once
-#include "Modules/ModuleManager.h"
 
 UETENSORVOX_API typedef TArray<int16> TAlignedSignedInt16Array;
 DECLARE_LOG_CATEGORY_EXTERN(LogUETensorVox, Log, All);
@@ -25,5 +24,7 @@ public:
 	void* DeepSpeechHandle;
 
 };
+
+
 
 
