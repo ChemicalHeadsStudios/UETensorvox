@@ -1,5 +1,5 @@
 ﻿#include "AudioTranscriberComponent.h"
-#include "ThreadManager.h"
+#include "HAL/ThreadManager.h"
 
 #include "UETensorVox.h"
 #if TENSORVOX_VALID_PLATFORM
