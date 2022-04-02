@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright SIA CHEMICAL HEADS 2020
 
 #pragma once
 #include "Modules/ModuleManager.h"
