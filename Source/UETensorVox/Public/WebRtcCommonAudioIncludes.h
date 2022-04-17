@@ -24,13 +24,11 @@ THIRD_PARTY_INCLUDES_START
 // for some unknown reasons we have to disable it inside those UE4's windows-related includes
 // C6323: Use of arithmetic operator on Boolean type(s).
 #pragma warning(push)
+
 #pragma warning(disable: 4582 4583 6323)
 #include "rtc_base/win32.h"
-#include "rtc_base/win32socketinit.h"
-#include "rtc_base/win32socketserver.h"
-// uses Win32 Interlocked* functions
-#include "rtc_base/refcountedobject.h"
 #pragma warning(pop)
+
 #if defined(UNDEF_INCL_EXTRA_HTON_FUNCTIONS)
 #	undef UNDEF_INCL_EXTRA_HTON_FUNCTIONS
 #	undef INCL_EXTRA_HTON_FUNCTIONS

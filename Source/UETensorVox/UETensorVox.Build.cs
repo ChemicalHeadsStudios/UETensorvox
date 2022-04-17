@@ -32,7 +32,7 @@ public class UETensorVox : ModuleRules
 		);
 
 		if (Target.Platform.IsInGroup(UnrealPlatformGroup.Windows) || Target.Platform == UnrealTargetPlatform.Mac || 
-		    Target.Platform == UnrealTargetPlatform.IOS || (Target.Platform == UnrealTargetPlatform.Android && Target.Platform != UnrealTargetPlatform.Lumin) || Target.Platform == UnrealTargetPlatform.Switch)
+		    Target.Platform == UnrealTargetPlatform.IOS || Target.Platform == UnrealTargetPlatform.Android)
 		{
 			PrivateDependencyModuleNames.AddRange(
 				new string[]
@@ -55,29 +55,28 @@ public class UETensorVox : ModuleRules
 		{
 			PrivateDependencyModuleNames.Add("AudioCaptureRtAudio");
 		}
-		else if (Target.Platform == UnrealTargetPlatform.PS4)
-		{
-			PrivateDependencyModuleNames.Add("AudioCaptureSony");
-		}
+		// else if (Target.Platform == UnrealTargetPlatform.PS4)
+		// {
+		// 	PrivateDependencyModuleNames.Add("AudioCaptureSony");
+		// }
 		else if (Target.Platform == UnrealTargetPlatform.IOS)
 		{
 			PrivateDependencyModuleNames.Add("AudioCaptureAudioUnit");
 		}
-		else if (Target.Platform == UnrealTargetPlatform.Android && Target.Platform != UnrealTargetPlatform.Lumin)
+		else if (Target.Platform == UnrealTargetPlatform.Android)
 		{
 			PrivateDependencyModuleNames.Add("AudioCaptureAndroid");
 		}
-		else if (Target.Platform == UnrealTargetPlatform.Switch)
-		{
-			PrivateDependencyModuleNames.Add("AudioCaptureSwitch");
-		}
+		// else if (Target.Platform == UnrealTargetPlatform.Switch)
+		// {
+		// 	PrivateDependencyModuleNames.Add("AudioCaptureSwitch");
+		// }
 		else
 		{
 			// throw new BuildException("RtAudio not found on platform, consider disabling this plugin on this module!");
 		}
 
-		if (Target.Platform == UnrealTargetPlatform.Win32 ||
-		    Target.Platform == UnrealTargetPlatform.Win64)
+		if (Target.Platform == UnrealTargetPlatform.Win64)
 		{
 			// Allow us to use direct sound
 			AddEngineThirdPartyPrivateStaticDependencies(Target, "DirectSound");
