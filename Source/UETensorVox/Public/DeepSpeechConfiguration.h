@@ -4,7 +4,7 @@
 #include "DeepSpeechConfiguration.generated.h"
 
 USTRUCT(BlueprintType)
-struct FDeepSpeechConfiguration
+struct UETENSORVOX_API FDeepSpeechConfiguration
 {
 	GENERATED_BODY()
 public:
