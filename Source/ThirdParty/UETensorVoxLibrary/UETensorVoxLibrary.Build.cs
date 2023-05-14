@@ -18,7 +18,7 @@ public class UETensorVoxLibrary : ModuleRules
 			PublicAdditionalLibraries.Add(Path.Combine(PluginDirectory, "Binaries", "ThirdParty", "Win64", "libdeepspeech.so.if.lib"));
 			RuntimeDependencies.Add(Path.Combine(PluginDirectory, "Binaries", "ThirdParty", "Win64", "libdeepspeech.so"));
 		}
-		else if (Target.Platform == UnrealTargetPlatform.Linux && Target.Architecture.StartsWith("x86_64"))
+		else if (Target.Platform == UnrealTargetPlatform.Linux && Target.Architecture.bIsX64)
 		{
 			RuntimeDependencies.Add(Path.Combine(PluginDirectory, "Binaries", "ThirdParty", "Linux64", "libdeepspeech.so"));
 		}
