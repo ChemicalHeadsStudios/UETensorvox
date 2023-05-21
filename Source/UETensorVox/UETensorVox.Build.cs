@@ -7,6 +7,7 @@ public class UETensorVox : ModuleRules
 {
 	public UETensorVox(ReadOnlyTargetRules Target) : base(Target)
 	{
+		IncludeOrderVersion = EngineIncludeOrderVersion.Unreal5_2;
 		bEnableExceptions = true;
 		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
 

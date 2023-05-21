@@ -1,5 +1,6 @@
 ﻿#include "DeepSpeechMicrophoneRecorder.h"
 #include "AssetRegistryModule.h"
+#include "AudioDeviceManager.h"
 #include "UETensorVox.h"
 #include "Components/AudioComponent.h"
 
