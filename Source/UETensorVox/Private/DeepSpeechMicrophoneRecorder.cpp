@@ -1,7 +1,10 @@
 ﻿#include "DeepSpeechMicrophoneRecorder.h"
-#include "AssetRegistryModule.h"
+
+#include "CoreMinimal.h"
+#include "Logging/LogMacros.h"
 #include "AudioDeviceManager.h"
 #include "UETensorVox.h"
+#include "AssetRegistry/AssetRegistryModule.h"
 #include "Components/AudioComponent.h"
 
 
@@ -277,7 +280,7 @@ USoundWave* FDeepSpeechMicrophoneRecorder::SaveAsWavMono(const TAlignedSignedInt
 	if (Samples.Num() > 0)
 	{
 		const FString& PackageName = Path / AssetName;
-		UPackage* Package = CreatePackage(nullptr, *PackageName);
+		UPackage* Package = CreatePackage(*PackageName);
 
 		const int32 NumBytes = Samples.Num() * Samples.GetTypeSize();
 		TArray<uint8> RawWaveData;
